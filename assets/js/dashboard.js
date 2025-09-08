@@ -59,6 +59,21 @@ function switchSection(sectionName) {
     if (targetSection) {
         targetSection.classList.add('active');
         
+        // Update page title
+        const titles = {
+            dashboard: 'Dashboard',
+            profile: 'My Profile',
+            search: 'Search Profiles',
+            requests: 'Contact Requests',
+            matches: 'My Matches',
+            messages: 'Messages'
+        };
+        
+        const pageTitle = document.getElementById('page-title');
+        if (pageTitle) {
+            pageTitle.textContent = titles[sectionName] || 'Dashboard';
+        }
+        
         // Load section-specific data
         switch (sectionName) {
             case 'dashboard':
@@ -68,10 +83,16 @@ function switchSection(sectionName) {
                 loadProfileData();
                 break;
             case 'search':
-                loadSearchProfiles();
+                searchProfiles();
                 break;
             case 'requests':
                 loadContactRequests();
+                break;
+            case 'matches':
+                loadMatches();
+                break;
+            case 'messages':
+                loadConversations();
                 break;
         }
     }
@@ -1023,4 +1044,678 @@ function showAlert(type, message, title = '') {
     }
 
     Swal.fire(config);
+}
+
+// Global variables for messaging
+let currentConversationId = null;
+let currentChatUserId = null;
+let messagePollingInterval = null;
+let conversations = [];
+let currentMatches = [];
+
+// Messaging System Functions
+
+async function loadMatches() {
+    try {
+        const response = await fetch('api.php?action=get_matches');
+        const result = await response.json();
+        
+        if (result.success) {
+            currentMatches = result.data;
+            displayMatches(result.data);
+        } else {
+            document.getElementById('matches-grid').innerHTML = `
+                <div class="empty-state">
+                    <i class="ri-heart-line"></i>
+                    <h3>No matches found</h3>
+                    <p>We'll find great matches for you. Keep your profile complete!</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error loading matches:', error);
+        showAlert('error', 'Failed to load matches');
+    }
+}
+
+function displayMatches(matches) {
+    const container = document.getElementById('matches-grid');
+    
+    if (matches.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="ri-heart-line"></i>
+                <h3>No matches found</h3>
+                <p>We'll find great matches for you soon!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = matches.map(match => `
+        <div class="match-card" onclick="viewMatch(${match.user_id})">
+            <div class="match-photo">
+                ${match.profile_photo_url ? 
+                    `<img src="${match.profile_photo_url}" alt="${match.full_name}">` :
+                    `<div class="photo-placeholder"><i class="ri-user-line"></i></div>`
+                }
+                <div class="compatibility-badge">${match.compatibility_score || '85'}%</div>
+            </div>
+            <div class="match-info">
+                <h4>${match.full_name}</h4>
+                <p><i class="ri-map-pin-line"></i> ${match.city || 'City not specified'}</p>
+                <p><i class="ri-briefcase-line"></i> ${match.occupation || 'Occupation not specified'}</p>
+                <p><i class="ri-cake-line"></i> ${match.age} years old</p>
+                <div class="match-actions">
+                    <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); likeMatch(${match.user_id})">
+                        <i class="ri-heart-line"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); sendMessageToUser(${match.user_id})">
+                        <i class="ri-message-line"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function findNewMatches() {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="ri-loader-4-line spinning"></i> Finding...';
+    button.disabled = true;
+    
+    try {
+        await loadMatches();
+        showAlert('success', 'New matches loaded!');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function likeMatch(userId) {
+    try {
+        const response = await fetch('api.php?action=create_match', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ matched_user_id: userId })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            showAlert('success', 'Match liked successfully!');
+            loadMatches(); // Refresh matches
+        } else {
+            showAlert('error', result.message);
+        }
+    } catch (error) {
+        console.error('Error liking match:', error);
+        showAlert('error', 'Failed to like match');
+    }
+}
+
+async function loadConversations() {
+    try {
+        const response = await fetch('api.php?action=get_conversations');
+        const result = await response.json();
+        
+        if (result.success) {
+            conversations = result.data;
+            displayConversations(result.data);
+        }
+    } catch (error) {
+        console.error('Error loading conversations:', error);
+    }
+}
+
+function displayConversations(conversations) {
+    const container = document.getElementById('conversations-list');
+    
+    if (conversations.length === 0) {
+        container.innerHTML = `
+            <div class="empty-conversations">
+                <i class="ri-chat-3-line"></i>
+                <p>No conversations yet</p>
+                <button class="btn btn-sm btn-primary" onclick="startNewConversation()">
+                    Start chatting
+                </button>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = conversations.map(conv => `
+        <div class="conversation-item ${conv.conversation_id === currentConversationId ? 'active' : ''}" 
+             onclick="openConversation(${conv.conversation_id}, ${conv.other_user_id}, '${conv.other_user_name}', '${conv.other_user_photo || ''}')">
+            <div class="conversation-avatar">
+                ${conv.other_user_photo ? 
+                    `<img src="${conv.other_user_photo}" alt="${conv.other_user_name}">` :
+                    `<div class="avatar-placeholder"><i class="ri-user-line"></i></div>`
+                }
+                ${conv.unread_count > 0 ? `<span class="unread-badge">${conv.unread_count}</span>` : ''}
+            </div>
+            <div class="conversation-info">
+                <h4>${conv.other_user_name}</h4>
+                <p class="last-message">${conv.last_message || 'No messages yet'}</p>
+                <span class="message-time">${formatMessageTime(conv.last_message_at)}</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function openConversation(conversationId, userId, userName, userPhoto) {
+    currentConversationId = conversationId;
+    currentChatUserId = userId;
+    
+    // Update chat header
+    document.getElementById('chat-user-name').textContent = userName;
+    document.getElementById('chat-user-photo').src = userPhoto || 'assets/images/default-avatar.png';
+    
+    // Show chat interface
+    document.getElementById('chat-header').style.display = 'flex';
+    document.getElementById('chat-input-area').style.display = 'block';
+    
+    // Hide no chat selected message
+    document.querySelector('.no-chat-selected').style.display = 'none';
+    
+    // Load messages
+    loadMessages(conversationId);
+    
+    // Start polling for new messages
+    if (messagePollingInterval) {
+        clearInterval(messagePollingInterval);
+    }
+    messagePollingInterval = setInterval(() => {
+        loadMessages(conversationId, false);
+    }, 3000);
+    
+    // Mark conversation as active
+    document.querySelectorAll('.conversation-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    event.currentTarget.classList.add('active');
+}
+
+async function loadMessages(conversationId, showLoading = true) {
+    try {
+        if (showLoading) {
+            document.getElementById('chat-messages').innerHTML = `
+                <div class="loading-messages">
+                    <i class="ri-loader-4-line spinning"></i>
+                    <p>Loading messages...</p>
+                </div>
+            `;
+        }
+        
+        const response = await fetch(`api.php?action=get_messages&conversation_id=${conversationId}`);
+        const result = await response.json();
+        
+        if (result.success) {
+            displayMessages(result.data, !showLoading);
+        }
+    } catch (error) {
+        console.error('Error loading messages:', error);
+    }
+}
+
+function displayMessages(messages, append = false) {
+    const container = document.getElementById('chat-messages');
+    
+    if (messages.length === 0) {
+        container.innerHTML = `
+            <div class="no-messages">
+                <i class="ri-chat-3-line"></i>
+                <p>No messages yet. Start the conversation!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const messagesHTML = messages.map(message => `
+        <div class="message ${message.sender_id == window.userData.user_id ? 'sent' : 'received'}">
+            <div class="message-content">
+                <p>${escapeHtml(message.message_text)}</p>
+                <span class="message-time">${formatMessageTime(message.sent_at)}</span>
+            </div>
+        </div>
+    `).join('');
+    
+    if (append) {
+        const currentScroll = container.scrollTop;
+        const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 1;
+        
+        container.innerHTML = messagesHTML;
+        
+        if (isScrolledToBottom) {
+            container.scrollTop = container.scrollHeight;
+        }
+    } else {
+        container.innerHTML = messagesHTML;
+        container.scrollTop = container.scrollHeight;
+    }
+}
+
+async function sendMessage() {
+    const input = document.getElementById('message-input');
+    const messageText = input.value.trim();
+    
+    if (!messageText || !currentChatUserId) return;
+    
+    const button = document.getElementById('send-message-btn');
+    button.disabled = true;
+    button.innerHTML = '<i class="ri-loader-4-line spinning"></i>';
+    
+    try {
+        const response = await fetch('api.php?action=send_message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                receiver_id: currentChatUserId,
+                message_text: messageText,
+                conversation_id: currentConversationId
+            })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            input.value = '';
+            updateMessageCounter();
+            
+            if (!currentConversationId) {
+                currentConversationId = result.data.conversation_id;
+            }
+            
+            // Reload messages and conversations
+            loadMessages(currentConversationId, false);
+            loadConversations();
+        } else {
+            showAlert('error', result.message);
+        }
+    } catch (error) {
+        console.error('Error sending message:', error);
+        showAlert('error', 'Failed to send message');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = '<i class="ri-send-plane-line"></i>';
+    }
+}
+
+function startNewConversation() {
+    showModal('newConversationModal');
+    loadMessageableUsers();
+}
+
+async function loadMessageableUsers() {
+    try {
+        // Get users who have accepted contact requests or matches
+        const response = await fetch('api.php?action=search_profiles&limit=20');
+        const result = await response.json();
+        
+        if (result.success) {
+            displayMessageableUsers(result.data.profiles);
+        }
+    } catch (error) {
+        console.error('Error loading users:', error);
+    }
+}
+
+function displayMessageableUsers(users) {
+    const container = document.getElementById('messageable-users-list');
+    
+    container.innerHTML = users.map(user => `
+        <div class="messageable-user" onclick="startConversationWithUser(${user.user_id}, '${user.full_name}')">
+            <div class="user-avatar">
+                ${user.profile_photo_url ? 
+                    `<img src="${user.profile_photo_url}" alt="${user.full_name}">` :
+                    `<div class="avatar-placeholder"><i class="ri-user-line"></i></div>`
+                }
+            </div>
+            <div class="user-info">
+                <h4>${user.full_name}</h4>
+                <p>${user.city || 'Location not specified'}</p>
+            </div>
+        </div>
+    `).join('');
+}
+
+function startConversationWithUser(userId, userName) {
+    closeModal('newConversationModal');
+    
+    // Switch to messages section
+    switchSection('messages');
+    
+    // Set up new conversation
+    currentChatUserId = userId;
+    currentConversationId = null;
+    
+    // Update chat header
+    document.getElementById('chat-user-name').textContent = userName;
+    document.getElementById('chat-header').style.display = 'flex';
+    document.getElementById('chat-input-area').style.display = 'block';
+    document.querySelector('.no-chat-selected').style.display = 'none';
+    
+    // Clear messages
+    document.getElementById('chat-messages').innerHTML = `
+        <div class="no-messages">
+            <i class="ri-chat-3-line"></i>
+            <p>Start your conversation with ${userName}</p>
+        </div>
+    `;
+}
+
+function sendMessageToUser(userId) {
+    // Find user name from matches or make API call
+    const match = currentMatches.find(m => m.user_id === userId);
+    const userName = match ? match.full_name : 'User';
+    
+    switchSection('messages');
+    startConversationWithUser(userId, userName);
+}
+
+function closeChatPanel() {
+    currentConversationId = null;
+    currentChatUserId = null;
+    
+    document.getElementById('chat-header').style.display = 'none';
+    document.getElementById('chat-input-area').style.display = 'none';
+    document.querySelector('.no-chat-selected').style.display = 'block';
+    
+    if (messagePollingInterval) {
+        clearInterval(messagePollingInterval);
+        messagePollingInterval = null;
+    }
+    
+    // Remove active class from conversations
+    document.querySelectorAll('.conversation-item').forEach(item => {
+        item.classList.remove('active');
+    });
+}
+
+// Message input handlers
+document.addEventListener('DOMContentLoaded', function() {
+    const messageInput = document.getElementById('message-input');
+    if (messageInput) {
+        messageInput.addEventListener('input', updateMessageCounter);
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    }
+});
+
+function updateMessageCounter() {
+    const input = document.getElementById('message-input');
+    const counter = document.getElementById('message-counter');
+    if (input && counter) {
+        const length = input.value.length;
+        counter.textContent = `${length}/1000`;
+        counter.style.color = length > 900 ? '#f44336' : '#6c757d';
+    }
+}
+
+// Utility functions
+function formatMessageTime(timestamp) {
+    if (!timestamp) return '';
+    
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffInHours = (now - date) / (1000 * 60 * 60);
+    
+    if (diffInHours < 1) {
+        return 'Just now';
+    } else if (diffInHours < 24) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else if (diffInHours < 48) {
+        return 'Yesterday';
+    } else {
+        return date.toLocaleDateString();
+    }
+}
+
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+}
+
+// Enhanced profile modal functions
+function startConversationFromModal() {
+    if (selectedProfileId) {
+        const userName = document.querySelector('#profile-modal-content h3')?.textContent || 'User';
+        closeModal('profileModal');
+        startConversationWithUser(selectedProfileId, userName);
+    }
+}
+
+// Filter tabs for matches
+document.addEventListener('DOMContentLoaded', function() {
+    const filterTabs = document.querySelectorAll('.filter-tab');
+    filterTabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            filterTabs.forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+            
+            const filter = this.dataset.filter;
+            filterMatches(filter);
+        });
+    });
+});
+
+function filterMatches(filter) {
+    let filteredMatches = [...currentMatches];
+    
+    switch (filter) {
+        case 'mutual':
+            filteredMatches = filteredMatches.filter(match => match.is_mutual);
+            break;
+        case 'recent':
+            filteredMatches = filteredMatches.sort((a, b) => new Date(b.match_date) - new Date(a.match_date));
+            break;
+        default:
+            // All matches - no filtering needed
+            break;
+    }
+    
+    displayMatches(filteredMatches);
+}
+
+// Notification System
+let notificationPollingInterval = null;
+
+function initializeNotifications() {
+    loadNotifications();
+    
+    // Poll for new notifications every 30 seconds
+    notificationPollingInterval = setInterval(() => {
+        loadNotifications(false);
+    }, 30000);
+}
+
+async function loadNotifications(showLoading = true) {
+    try {
+        if (showLoading) {
+            document.getElementById('notifications-list').innerHTML = `
+                <div class="loading-notifications">
+                    <i class="ri-loader-4-line spinning"></i>
+                    <p>Loading notifications...</p>
+                </div>
+            `;
+        }
+        
+        const response = await fetch('api.php?action=get_notifications&limit=10');
+        const result = await response.json();
+        
+        if (result.success) {
+            displayNotifications(result.data);
+            updateNotificationBadge(result.data);
+        }
+    } catch (error) {
+        console.error('Error loading notifications:', error);
+    }
+}
+
+function displayNotifications(notifications) {
+    const container = document.getElementById('notifications-list');
+    
+    if (notifications.length === 0) {
+        container.innerHTML = `
+            <div class="empty-notifications">
+                <i class="ri-notification-off-line"></i>
+                <p>No notifications</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = notifications.map(notification => `
+        <div class="notification-item ${notification.is_read ? 'read' : 'unread'}" onclick="handleNotificationClick(${notification.notification_id}, '${notification.type}', ${notification.related_user_id})">
+            <div class="notification-icon">
+                <i class="${getNotificationIcon(notification.type)}"></i>
+            </div>
+            <div class="notification-content">
+                <h5>${notification.title}</h5>
+                <p>${notification.message}</p>
+                <span class="notification-time">${formatNotificationTime(notification.created_at)}</span>
+            </div>
+            ${!notification.is_read ? '<div class="notification-dot"></div>' : ''}
+        </div>
+    `).join('');
+}
+
+function updateNotificationBadge(notifications) {
+    const unreadCount = notifications.filter(n => !n.is_read).length;
+    const badge = document.getElementById('notification-count');
+    
+    if (unreadCount > 0) {
+        badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+        badge.style.display = 'block';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+function getNotificationIcon(type) {
+    const icons = {
+        message: 'ri-message-line',
+        contact_request: 'ri-heart-line',
+        profile_view: 'ri-eye-line',
+        match: 'ri-user-heart-line'
+    };
+    return icons[type] || 'ri-notification-line';
+}
+
+function formatNotificationTime(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffInMinutes = (now - date) / (1000 * 60);
+    
+    if (diffInMinutes < 1) {
+        return 'Just now';
+    } else if (diffInMinutes < 60) {
+        return `${Math.floor(diffInMinutes)}m ago`;
+    } else if (diffInMinutes < 1440) {
+        return `${Math.floor(diffInMinutes / 60)}h ago`;
+    } else {
+        return `${Math.floor(diffInMinutes / 1440)}d ago`;
+    }
+}
+
+function toggleNotifications() {
+    const panel = document.getElementById('notifications-panel');
+    panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+    
+    if (panel.style.display === 'block') {
+        loadNotifications();
+    }
+}
+
+async function handleNotificationClick(notificationId, type, relatedUserId) {
+    // Mark notification as read
+    try {
+        await fetch('api.php?action=mark_notification_read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notification_id: notificationId })
+        });
+        
+        loadNotifications(false);
+    } catch (error) {
+        console.error('Error marking notification as read:', error);
+    }
+    
+    // Handle notification action based on type
+    switch (type) {
+        case 'message':
+            switchSection('messages');
+            // Find and open conversation with related user
+            setTimeout(() => {
+                const conversationItem = document.querySelector(`[onclick*="${relatedUserId}"]`);
+                if (conversationItem) {
+                    conversationItem.click();
+                }
+            }, 500);
+            break;
+        case 'contact_request':
+            switchSection('requests');
+            break;
+        case 'match':
+            switchSection('matches');
+            break;
+        case 'profile_view':
+            if (relatedUserId) {
+                viewProfile(relatedUserId);
+            }
+            break;
+    }
+    
+    // Close notifications panel
+    document.getElementById('notifications-panel').style.display = 'none';
+}
+
+async function markAllNotificationsRead() {
+    try {
+        const notifications = document.querySelectorAll('.notification-item.unread');
+        for (const notification of notifications) {
+            const notificationId = notification.onclick.toString().match(/handleNotificationClick\((\d+)/)?.[1];
+            if (notificationId) {
+                await fetch('api.php?action=mark_notification_read', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notification_id: parseInt(notificationId) })
+                });
+            }
+        }
+        
+        loadNotifications(false);
+        showAlert('success', 'All notifications marked as read');
+    } catch (error) {
+        console.error('Error marking all notifications as read:', error);
+        showAlert('error', 'Failed to mark notifications as read');
+    }
+}
+
+// Close notifications when clicking outside
+document.addEventListener('click', function(event) {
+    const panel = document.getElementById('notifications-panel');
+    const button = document.querySelector('.notification-btn');
+    
+    if (panel && !panel.contains(event.target) && !button.contains(event.target)) {
+        panel.style.display = 'none';
+    }
+});
+
+// Update initialization function
+function initializeUserDashboard() {
+    setupUserNavigation();
+    setupEventListeners();
+    loadDashboardData();
+    initializeNotifications();
 }

@@ -91,6 +91,26 @@ $user_name = $_SESSION['user_name'];
                     <h1 id="page-title">Dashboard</h1>
                 </div>
                 <div class="header-right">
+                    <div class="notifications-dropdown">
+                        <button class="notification-btn" onclick="toggleNotifications()">
+                            <i class="ri-notification-line"></i>
+                            <span class="notification-badge" id="notification-count" style="display: none;">0</span>
+                        </button>
+                        <div class="notifications-panel" id="notifications-panel">
+                            <div class="notifications-header">
+                                <h4>Notifications</h4>
+                                <button class="btn btn-sm" onclick="markAllNotificationsRead()">
+                                    Mark all read
+                                </button>
+                            </div>
+                            <div class="notifications-list" id="notifications-list">
+                                <div class="loading-notifications">
+                                    <i class="ri-loader-4-line spinning"></i>
+                                    <p>Loading notifications...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="user-info">
                         <span>Welcome, <?php echo htmlspecialchars($user_name); ?></span>
                         <div class="user-avatar">
@@ -487,26 +507,113 @@ $user_name = $_SESSION['user_name'];
                     </div>
                 </section>
 
-                <!-- Other sections can be added here -->
+                <!-- Matches Section -->
                 <section id="matches-section" class="content-section">
                     <div class="section-header">
-                        <h2>My Matches</h2>
+                        <h2><i class="ri-user-heart-line"></i> My Matches</h2>
+                        <button class="btn btn-primary" onclick="findNewMatches()">
+                            <i class="ri-refresh-line"></i> Find New Matches
+                        </button>
                     </div>
-                    <div class="coming-soon">
-                        <i class="ri-heart-line"></i>
-                        <h3>Coming Soon</h3>
-                        <p>This feature is under development and will be available soon!</p>
+                    
+                    <div class="matches-filters">
+                        <div class="filter-tabs">
+                            <button class="filter-tab active" data-filter="all">All Matches</button>
+                            <button class="filter-tab" data-filter="mutual">Mutual Matches</button>
+                            <button class="filter-tab" data-filter="recent">Recent</button>
+                        </div>
+                    </div>
+                    
+                    <div class="matches-grid" id="matches-grid">
+                        <div class="loading-matches">
+                            <i class="ri-loader-4-line"></i>
+                            <p>Finding your perfect matches...</p>
+                        </div>
+                    </div>
+                    
+                    <div class="matches-pagination">
+                        <button id="matches-prev-btn" class="btn btn-outline" disabled>
+                            <i class="ri-arrow-left-line"></i> Previous
+                        </button>
+                        <span id="matches-page-info">Page 1 of 1</span>
+                        <button id="matches-next-btn" class="btn btn-outline" disabled>
+                            Next <i class="ri-arrow-right-line"></i>
+                        </button>
                     </div>
                 </section>
 
+                <!-- Messages Section -->
                 <section id="messages-section" class="content-section">
-                    <div class="section-header">
-                        <h2>Messages</h2>
-                    </div>
-                    <div class="coming-soon">
-                        <i class="ri-message-line"></i>
-                        <h3>Coming Soon</h3>
-                        <p>Messaging feature will be available soon!</p>
+                    <div class="messages-container">
+                        <!-- Conversations List -->
+                        <div class="conversations-panel">
+                            <div class="conversations-header">
+                                <h3><i class="ri-message-line"></i> Messages</h3>
+                                <button class="btn btn-sm btn-primary" onclick="startNewConversation()">
+                                    <i class="ri-add-line"></i> New Chat
+                                </button>
+                            </div>
+                            
+                            <div class="conversations-search">
+                                <div class="search-input">
+                                    <i class="ri-search-line"></i>
+                                    <input type="text" placeholder="Search conversations..." id="conversation-search">
+                                </div>
+                            </div>
+                            
+                            <div class="conversations-list" id="conversations-list">
+                                <div class="loading-conversations">
+                                    <i class="ri-loader-4-line"></i>
+                                    <p>Loading conversations...</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Chat Area -->
+                        <div class="chat-panel">
+                            <div class="chat-header" id="chat-header" style="display: none;">
+                                <div class="chat-user-info">
+                                    <div class="chat-user-avatar">
+                                        <img id="chat-user-photo" src="" alt="">
+                                    </div>
+                                    <div class="chat-user-details">
+                                        <h4 id="chat-user-name"></h4>
+                                        <span class="online-status" id="chat-user-status">Online</span>
+                                    </div>
+                                </div>
+                                <div class="chat-actions">
+                                    <button class="btn btn-icon" onclick="viewProfile(currentChatUserId)">
+                                        <i class="ri-user-line"></i>
+                                    </button>
+                                    <button class="btn btn-icon" onclick="closeChatPanel()">
+                                        <i class="ri-close-line"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="chat-messages" id="chat-messages">
+                                <div class="no-chat-selected">
+                                    <i class="ri-chat-3-line"></i>
+                                    <h3>Select a conversation</h3>
+                                    <p>Choose a conversation from the left panel to start messaging</p>
+                                </div>
+                            </div>
+                            
+                            <div class="chat-input-area" id="chat-input-area" style="display: none;">
+                                <div class="chat-input">
+                                    <input type="text" id="message-input" placeholder="Type your message..." maxlength="1000">
+                                    <button class="btn btn-primary" id="send-message-btn" onclick="sendMessage()">
+                                        <i class="ri-send-plane-line"></i>
+                                    </button>
+                                </div>
+                                <div class="chat-input-info">
+                                    <span id="typing-indicator" style="display: none;">
+                                        <i class="ri-more-line"></i> typing...
+                                    </span>
+                                    <span id="message-counter">0/1000</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </section>
             </div>
@@ -527,6 +634,58 @@ $user_name = $_SESSION['user_name'];
                 <button class="btn btn-primary" onclick="sendContactRequestFromModal()">
                     <i class="ri-heart-line"></i>
                     Send Contact Request
+                </button>
+                <button class="btn btn-outline" onclick="startConversationFromModal()">
+                    <i class="ri-message-line"></i>
+                    Send Message
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Conversation Modal -->
+    <div id="newConversationModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="ri-message-line"></i> Start New Conversation</h2>
+                <span class="close" onclick="closeModal('newConversationModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="search-users">
+                    <div class="search-input">
+                        <i class="ri-search-line"></i>
+                        <input type="text" id="user-search" placeholder="Search for users to message...">
+                    </div>
+                </div>
+                <div class="users-list" id="messageable-users-list">
+                    <!-- Users will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Match Details Modal -->
+    <div id="matchModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2><i class="ri-user-heart-line"></i> Match Details</h2>
+                <span class="close" onclick="closeModal('matchModal')">&times;</span>
+            </div>
+            <div class="modal-body" id="match-modal-content">
+                <!-- Match details will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-success" onclick="likeMatch()">
+                    <i class="ri-heart-line"></i>
+                    Like
+                </button>
+                <button class="btn btn-primary" onclick="sendMessageToMatch()">
+                    <i class="ri-message-line"></i>
+                    Message
+                </button>
+                <button class="btn btn-outline" onclick="skipMatch()">
+                    <i class="ri-close-line"></i>
+                    Skip
                 </button>
             </div>
         </div>

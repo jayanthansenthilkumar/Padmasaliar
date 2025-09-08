@@ -66,6 +66,30 @@ try {
         case 'delete_user':
             deleteUser($db);
             break;
+        case 'get_conversations':
+            getConversations($db);
+            break;
+        case 'get_messages':
+            getMessages($db);
+            break;
+        case 'send_message':
+            sendMessage($db);
+            break;
+        case 'mark_message_read':
+            markMessageRead($db);
+            break;
+        case 'get_matches':
+            getMatches($db);
+            break;
+        case 'create_match':
+            createMatch($db);
+            break;
+        case 'get_notifications':
+            getNotifications($db);
+            break;
+        case 'mark_notification_read':
+            markNotificationRead($db);
+            break;
         default:
             sendResponse(false, 'Invalid action', null, 400);
     }
@@ -806,6 +830,366 @@ function deleteUser($db) {
     } catch (Exception $e) {
         $db->rollback();
         sendResponse(false, 'Failed to delete user: ' . $e->getMessage());
+    }
+}
+
+// Messaging System Functions
+
+function getConversations($db) {
+    if (!isLoggedIn()) {
+        sendResponse(false, 'Authentication required', null, 401);
+    }
+    
+    $user_id = $_SESSION['user_id'];
+    
+    $query = "SELECT DISTINCT 
+                c.conversation_id,
+                c.last_message_at,
+                CASE 
+                    WHEN c.user1_id = :user_id THEN c.user2_id 
+                    ELSE c.user1_id 
+                END as other_user_id,
+                CASE 
+                    WHEN c.user1_id = :user_id THEN u2.full_name 
+                    ELSE u1.full_name 
+                END as other_user_name,
+                CASE 
+                    WHEN c.user1_id = :user_id THEN u2.profile_photo_url 
+                    ELSE u1.profile_photo_url 
+                END as other_user_photo,
+                m.message_text as last_message,
+                m.sender_id as last_message_sender_id,
+                COUNT(CASE WHEN m2.is_read = 0 AND m2.receiver_id = :user_id THEN 1 END) as unread_count
+              FROM conversations c
+              LEFT JOIN users u1 ON c.user1_id = u1.user_id
+              LEFT JOIN users u2 ON c.user2_id = u2.user_id
+              LEFT JOIN messages m ON c.last_message_id = m.message_id
+              LEFT JOIN messages m2 ON c.conversation_id = m2.conversation_id
+              WHERE c.user1_id = :user_id OR c.user2_id = :user_id
+              GROUP BY c.conversation_id
+              ORDER BY c.last_message_at DESC";
+    
+    $stmt = $db->prepare($query);
+    $stmt->bindParam(':user_id', $user_id);
+    $stmt->execute();
+    
+    $conversations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    sendResponse(true, 'Conversations retrieved successfully', $conversations);
+}
+
+function getMessages($db) {
+    if (!isLoggedIn()) {
+        sendResponse(false, 'Authentication required', null, 401);
+    }
+    
+    $user_id = $_SESSION['user_id'];
+    $conversation_id = intval($_GET['conversation_id'] ?? 0);
+    $page = intval($_GET['page'] ?? 1);
+    $limit = 50;
+    $offset = ($page - 1) * $limit;
+    
+    if (empty($conversation_id)) {
+        sendResponse(false, 'Conversation ID is required');
+    }
+    
+    // Verify user is part of this conversation
+    $verifyQuery = "SELECT 1 FROM conversations WHERE conversation_id = :conversation_id AND (user1_id = :user_id OR user2_id = :user_id)";
+    $verifyStmt = $db->prepare($verifyQuery);
+    $verifyStmt->bindParam(':conversation_id', $conversation_id);
+    $verifyStmt->bindParam(':user_id', $user_id);
+    $verifyStmt->execute();
+    
+    if (!$verifyStmt->fetch()) {
+        sendResponse(false, 'Access denied to this conversation', null, 403);
+    }
+    
+    $query = "SELECT m.*, u.full_name as sender_name, u.profile_photo_url as sender_photo
+              FROM messages m
+              JOIN users u ON m.sender_id = u.user_id
+              WHERE m.conversation_id = :conversation_id
+              ORDER BY m.sent_at DESC
+              LIMIT :limit OFFSET :offset";
+    
+    $stmt = $db->prepare($query);
+    $stmt->bindParam(':conversation_id', $conversation_id);
+    $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+    $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+    $stmt->execute();
+    
+    $messages = array_reverse($stmt->fetchAll(PDO::FETCH_ASSOC));
+    sendResponse(true, 'Messages retrieved successfully', $messages);
+}
+
+function sendMessage($db) {
+    if (!isLoggedIn()) {
+        sendResponse(false, 'Authentication required', null, 401);
+    }
+    
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        sendResponse(false, 'Method not allowed', null, 405);
+    }
+    
+    $input = json_decode(file_get_contents('php://input'), true);
+    $receiver_id = intval($input['receiver_id'] ?? 0);
+    $message_text = sanitizeInput($input['message_text'] ?? '');
+    $conversation_id = intval($input['conversation_id'] ?? 0);
+    
+    $sender_id = $_SESSION['user_id'];
+    
+    if (empty($receiver_id) || empty(trim($message_text))) {
+        sendResponse(false, 'Receiver ID and message text are required');
+    }
+    
+    if ($sender_id == $receiver_id) {
+        sendResponse(false, 'Cannot send message to yourself');
+    }
+    
+    try {
+        $db->beginTransaction();
+        
+        // Create or get conversation
+        if (empty($conversation_id)) {
+            // Check if conversation already exists
+            $checkQuery = "SELECT conversation_id FROM conversations 
+                          WHERE (user1_id = :sender_id AND user2_id = :receiver_id) 
+                          OR (user1_id = :receiver_id AND user2_id = :sender_id)";
+            $checkStmt = $db->prepare($checkQuery);
+            $checkStmt->bindParam(':sender_id', $sender_id);
+            $checkStmt->bindParam(':receiver_id', $receiver_id);
+            $checkStmt->execute();
+            
+            $existing = $checkStmt->fetch();
+            if ($existing) {
+                $conversation_id = $existing['conversation_id'];
+            } else {
+                // Create new conversation
+                $createConvQuery = "INSERT INTO conversations (user1_id, user2_id) VALUES (:user1_id, :user2_id)";
+                $createConvStmt = $db->prepare($createConvQuery);
+                $createConvStmt->bindParam(':user1_id', $sender_id);
+                $createConvStmt->bindParam(':user2_id', $receiver_id);
+                $createConvStmt->execute();
+                $conversation_id = $db->lastInsertId();
+            }
+        }
+        
+        // Insert message
+        $insertQuery = "INSERT INTO messages (conversation_id, sender_id, receiver_id, message_text) VALUES (:conversation_id, :sender_id, :receiver_id, :message_text)";
+        $insertStmt = $db->prepare($insertQuery);
+        $insertStmt->bindParam(':conversation_id', $conversation_id);
+        $insertStmt->bindParam(':sender_id', $sender_id);
+        $insertStmt->bindParam(':receiver_id', $receiver_id);
+        $insertStmt->bindParam(':message_text', $message_text);
+        $insertStmt->execute();
+        
+        $message_id = $db->lastInsertId();
+        
+        // Update conversation last message
+        $updateConvQuery = "UPDATE conversations SET last_message_id = :message_id, last_message_at = NOW() WHERE conversation_id = :conversation_id";
+        $updateConvStmt = $db->prepare($updateConvQuery);
+        $updateConvStmt->bindParam(':message_id', $message_id);
+        $updateConvStmt->bindParam(':conversation_id', $conversation_id);
+        $updateConvStmt->execute();
+        
+        // Create notification
+        $notificationQuery = "INSERT INTO notifications (user_id, type, title, message, related_user_id) VALUES (:user_id, 'message', 'New Message', :message, :related_user_id)";
+        $notificationStmt = $db->prepare($notificationQuery);
+        $notificationStmt->bindParam(':user_id', $receiver_id);
+        $notificationStmt->bindParam(':message', 'You have received a new message');
+        $notificationStmt->bindParam(':related_user_id', $sender_id);
+        $notificationStmt->execute();
+        
+        $db->commit();
+        sendResponse(true, 'Message sent successfully', ['message_id' => $message_id, 'conversation_id' => $conversation_id]);
+    } catch (Exception $e) {
+        $db->rollback();
+        sendResponse(false, 'Failed to send message: ' . $e->getMessage());
+    }
+}
+
+function markMessageRead($db) {
+    if (!isLoggedIn()) {
+        sendResponse(false, 'Authentication required', null, 401);
+    }
+    
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        sendResponse(false, 'Method not allowed', null, 405);
+    }
+    
+    $input = json_decode(file_get_contents('php://input'), true);
+    $message_id = intval($input['message_id'] ?? 0);
+    $user_id = $_SESSION['user_id'];
+    
+    if (empty($message_id)) {
+        sendResponse(false, 'Message ID is required');
+    }
+    
+    $query = "UPDATE messages SET is_read = 1, read_at = NOW() WHERE message_id = :message_id AND receiver_id = :user_id";
+    $stmt = $db->prepare($query);
+    $stmt->bindParam(':message_id', $message_id);
+    $stmt->bindParam(':user_id', $user_id);
+    
+    if ($stmt->execute()) {
+        sendResponse(true, 'Message marked as read');
+    } else {
+        sendResponse(false, 'Failed to mark message as read');
+    }
+}
+
+function getMatches($db) {
+    if (!isLoggedIn()) {
+        sendResponse(false, 'Authentication required', null, 401);
+    }
+    
+    $user_id = $_SESSION['user_id'];
+    
+    // Get user's preferences for matching
+    $userQuery = "SELECT gender, date_of_birth, city, community_certificate, partner_preferences FROM users WHERE user_id = :user_id";
+    $userStmt = $db->prepare($userQuery);
+    $userStmt->bindParam(':user_id', $user_id);
+    $userStmt->execute();
+    $user = $userStmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$user) {
+        sendResponse(false, 'User not found');
+    }
+    
+    // Calculate age
+    $userAge = date_diff(date_create($user['date_of_birth']), date_create('today'))->y;
+    $oppositeGender = ($user['gender'] == 'Male') ? 'Female' : 'Male';
+    
+    // Find potential matches
+    $query = "SELECT u.user_id, u.full_name, u.date_of_birth, u.city, u.occupation, 
+                     u.highest_qualification, u.profile_photo_url, u.about_me,
+                     TIMESTAMPDIFF(YEAR, u.date_of_birth, CURDATE()) as age
+              FROM users u
+              WHERE u.user_id != :user_id 
+              AND u.gender = :opposite_gender
+              AND u.account_status = 'Active'
+              AND u.user_id NOT IN (
+                  SELECT matched_user_id FROM user_matches WHERE user_id = :user_id
+              )
+              ORDER BY RAND()
+              LIMIT 20";
+    
+    $stmt = $db->prepare($query);
+    $stmt->bindParam(':user_id', $user_id);
+    $stmt->bindParam(':opposite_gender', $oppositeGender);
+    $stmt->execute();
+    
+    $matches = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    sendResponse(true, 'Matches retrieved successfully', $matches);
+}
+
+function createMatch($db) {
+    if (!isLoggedIn()) {
+        sendResponse(false, 'Authentication required', null, 401);
+    }
+    
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        sendResponse(false, 'Method not allowed', null, 405);
+    }
+    
+    $input = json_decode(file_get_contents('php://input'), true);
+    $matched_user_id = intval($input['matched_user_id'] ?? 0);
+    $user_id = $_SESSION['user_id'];
+    
+    if (empty($matched_user_id) || $user_id == $matched_user_id) {
+        sendResponse(false, 'Invalid user ID');
+    }
+    
+    // Check if match already exists
+    $checkQuery = "SELECT 1 FROM user_matches WHERE user_id = :user_id AND matched_user_id = :matched_user_id";
+    $checkStmt = $db->prepare($checkQuery);
+    $checkStmt->bindParam(':user_id', $user_id);
+    $checkStmt->bindParam(':matched_user_id', $matched_user_id);
+    $checkStmt->execute();
+    
+    if ($checkStmt->fetch()) {
+        sendResponse(false, 'Match already exists');
+    }
+    
+    // Calculate compatibility score (simple algorithm)
+    $score = rand(75, 95) + (rand(0, 100) / 100);
+    
+    $query = "INSERT INTO user_matches (user_id, matched_user_id, compatibility_score) VALUES (:user_id, :matched_user_id, :score)";
+    $stmt = $db->prepare($query);
+    $stmt->bindParam(':user_id', $user_id);
+    $stmt->bindParam(':matched_user_id', $matched_user_id);
+    $stmt->bindParam(':score', $score);
+    
+    if ($stmt->execute()) {
+        // Check if it's mutual
+        $mutualQuery = "SELECT 1 FROM user_matches WHERE user_id = :matched_user_id AND matched_user_id = :user_id";
+        $mutualStmt = $db->prepare($mutualQuery);
+        $mutualStmt->bindParam(':matched_user_id', $matched_user_id);
+        $mutualStmt->bindParam(':user_id', $user_id);
+        $mutualStmt->execute();
+        
+        if ($mutualStmt->fetch()) {
+            // Update both matches as mutual
+            $updateQuery = "UPDATE user_matches SET is_mutual = 1 WHERE (user_id = :user_id AND matched_user_id = :matched_user_id) OR (user_id = :matched_user_id AND matched_user_id = :user_id)";
+            $updateStmt = $db->prepare($updateQuery);
+            $updateStmt->bindParam(':user_id', $user_id);
+            $updateStmt->bindParam(':matched_user_id', $matched_user_id);
+            $updateStmt->execute();
+        }
+        
+        sendResponse(true, 'Match created successfully', ['compatibility_score' => $score]);
+    } else {
+        sendResponse(false, 'Failed to create match');
+    }
+}
+
+function getNotifications($db) {
+    if (!isLoggedIn()) {
+        sendResponse(false, 'Authentication required', null, 401);
+    }
+    
+    $user_id = $_SESSION['user_id'];
+    $limit = intval($_GET['limit'] ?? 20);
+    
+    $query = "SELECT n.*, u.full_name as related_user_name, u.profile_photo_url as related_user_photo
+              FROM notifications n
+              LEFT JOIN users u ON n.related_user_id = u.user_id
+              WHERE n.user_id = :user_id
+              ORDER BY n.created_at DESC
+              LIMIT :limit";
+    
+    $stmt = $db->prepare($query);
+    $stmt->bindParam(':user_id', $user_id);
+    $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+    
+    $notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    sendResponse(true, 'Notifications retrieved successfully', $notifications);
+}
+
+function markNotificationRead($db) {
+    if (!isLoggedIn()) {
+        sendResponse(false, 'Authentication required', null, 401);
+    }
+    
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        sendResponse(false, 'Method not allowed', null, 405);
+    }
+    
+    $input = json_decode(file_get_contents('php://input'), true);
+    $notification_id = intval($input['notification_id'] ?? 0);
+    $user_id = $_SESSION['user_id'];
+    
+    if (empty($notification_id)) {
+        sendResponse(false, 'Notification ID is required');
+    }
+    
+    $query = "UPDATE notifications SET is_read = 1 WHERE notification_id = :notification_id AND user_id = :user_id";
+    $stmt = $db->prepare($query);
+    $stmt->bindParam(':notification_id', $notification_id);
+    $stmt->bindParam(':user_id', $user_id);
+    
+    if ($stmt->execute()) {
+        sendResponse(true, 'Notification marked as read');
+    } else {
+        sendResponse(false, 'Failed to mark notification as read');
     }
 }
 ?>

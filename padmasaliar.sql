@@ -78,3 +78,77 @@ CREATE TABLE contact_requests (
     INDEX (status),
     INDEX (sent_at)
 );
+
+-- Step 6: Create the conversations table
+CREATE TABLE conversations (
+    conversation_id INT AUTO_INCREMENT PRIMARY KEY,
+    user1_id INT NOT NULL,
+    user2_id INT NOT NULL,
+    last_message_id INT DEFAULT NULL,
+    last_message_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user1_id) REFERENCES users(user_id),
+    FOREIGN KEY (user2_id) REFERENCES users(user_id),
+    UNIQUE KEY unique_conversation (user1_id, user2_id),
+    INDEX (user1_id),
+    INDEX (user2_id),
+    INDEX (last_message_at)
+);
+
+-- Step 7: Create the messages table
+CREATE TABLE messages (
+    message_id INT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id INT NOT NULL,
+    sender_id INT NOT NULL,
+    receiver_id INT NOT NULL,
+    message_text TEXT NOT NULL,
+    message_type ENUM('text', 'image', 'file') DEFAULT 'text',
+    attachment_url VARCHAR(255) DEFAULT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    read_at DATETIME DEFAULT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+    FOREIGN KEY (sender_id) REFERENCES users(user_id),
+    FOREIGN KEY (receiver_id) REFERENCES users(user_id),
+    INDEX (conversation_id),
+    INDEX (sender_id),
+    INDEX (receiver_id),
+    INDEX (sent_at),
+    INDEX (is_read)
+);
+
+-- Step 8: Create the notifications table
+CREATE TABLE notifications (
+    notification_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    type ENUM('message', 'contact_request', 'profile_view', 'match') NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    related_user_id INT DEFAULT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (related_user_id) REFERENCES users(user_id),
+    INDEX (user_id),
+    INDEX (type),
+    INDEX (is_read),
+    INDEX (created_at)
+);
+
+-- Step 9: Create the user_matches table
+CREATE TABLE user_matches (
+    match_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    matched_user_id INT NOT NULL,
+    compatibility_score DECIMAL(5,2) DEFAULT 0.00,
+    match_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_mutual BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (matched_user_id) REFERENCES users(user_id),
+    UNIQUE KEY unique_match (user_id, matched_user_id),
+    INDEX (user_id),
+    INDEX (matched_user_id),
+    INDEX (compatibility_score),
+    INDEX (match_date)
+);
