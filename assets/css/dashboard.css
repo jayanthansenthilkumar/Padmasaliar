@@ -1,8 +1,38 @@
-/* Dashboard Specific Styles */
+/* Dashboard Specific Styles with Enhanced Typography */
 .dashboard-container {
     display: flex;
     min-height: 100vh;
     background: var(--bg-secondary);
+    font-family: 'Poppins', sans-serif;
+}
+
+/* Enhanced Typography for Dashboard */
+.dashboard-container h1,
+.dashboard-container h2,
+.dashboard-container h3,
+.dashboard-container h4,
+.dashboard-container h5,
+.dashboard-container h6 {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+}
+
+.dashboard-container .stats-card h3,
+.dashboard-container .card-title {
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+
+.dashboard-container .sidebar-brand span,
+.dashboard-container .nav-item span {
+    font-weight: 500;
+}
+
+.dashboard-container input,
+.dashboard-container select,
+.dashboard-container textarea,
+.dashboard-container button {
+    font-family: 'Poppins', sans-serif;
 }
 
 /* Sidebar Styles */
