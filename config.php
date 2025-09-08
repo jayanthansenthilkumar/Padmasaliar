@@ -113,6 +113,6 @@ define('MAX_FILE_SIZE', getenv('MAX_FILE_SIZE'));
 define('ALLOWED_EXTENSIONS', explode(',', getenv('ALLOWED_EXTENSIONS')));
 
 // Admin credentials
-define('ADMIN_EMAIL', getenv('ADMIN_EMAIL'));
-define('ADMIN_PASSWORD', getenv('ADMIN_PASSWORD'));
+define('ADMIN_EMAIL', getenv('ADMIN_EMAIL') ?: 'admin@padmasaliar.com');
+define('ADMIN_PASSWORD', getenv('ADMIN_PASSWORD') ?: 'admin123');
 ?>

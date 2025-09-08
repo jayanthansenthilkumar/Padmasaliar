@@ -111,10 +111,49 @@ $user_name = $_SESSION['user_name'];
                             </div>
                         </div>
                     </div>
-                    <div class="user-info">
-                        <span>Welcome, <?php echo htmlspecialchars($user_name); ?></span>
-                        <div class="user-avatar">
-                            <i class="ri-user-fill"></i>
+                    
+                    <div class="user-dropdown">
+                        <button class="user-dropdown-btn" onclick="toggleUserDropdown()">
+                            <div class="user-avatar">
+                                <i class="ri-user-fill"></i>
+                            </div>
+                            <div class="user-info-text">
+                                <span class="user-name"><?php echo htmlspecialchars($user_name); ?></span>
+                                <span class="user-role">Member</span>
+                            </div>
+                            <i class="ri-arrow-down-s-line dropdown-arrow"></i>
+                        </button>
+                        
+                        <div class="user-dropdown-menu" id="user-dropdown-menu">
+                            <div class="dropdown-header">
+                                <div class="user-avatar-large">
+                                    <i class="ri-user-fill"></i>
+                                </div>
+                                <div class="user-details">
+                                    <h4><?php echo htmlspecialchars($user_name); ?></h4>
+                                    <p>Premium Member</p>
+                                </div>
+                            </div>
+                            
+                            <div class="dropdown-items">
+                                <a href="#profile" class="dropdown-item" onclick="switchSection('profile'); closeUserDropdown();">
+                                    <i class="ri-user-line"></i>
+                                    <span>My Profile</span>
+                                </a>
+                                <a href="#" class="dropdown-item" onclick="openSettingsModal()">
+                                    <i class="ri-settings-line"></i>
+                                    <span>Account Settings</span>
+                                </a>
+                                <a href="#" class="dropdown-item" onclick="openHelpModal()">
+                                    <i class="ri-question-line"></i>
+                                    <span>Help & Support</span>
+                                </a>
+                                <div class="dropdown-divider"></div>
+                                <a href="#" class="dropdown-item logout-item" onclick="handleLogout()">
+                                    <i class="ri-logout-box-line"></i>
+                                    <span>Logout</span>
+                                </a>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -600,17 +639,55 @@ $user_name = $_SESSION['user_name'];
                             </div>
                             
                             <div class="chat-input-area" id="chat-input-area" style="display: none;">
+                                <div class="message-actions">
+                                    <button class="btn btn-icon" onclick="toggleEmojiPicker()" title="Add emoji">
+                                        <i class="ri-emotion-line"></i>
+                                    </button>
+                                    <button class="btn btn-icon" onclick="attachFile()" title="Attach file">
+                                        <i class="ri-attachment-line"></i>
+                                    </button>
+                                </div>
+                                
                                 <div class="chat-input">
-                                    <input type="text" id="message-input" placeholder="Type your message..." maxlength="1000">
+                                    <textarea 
+                                        id="message-input" 
+                                        placeholder="Type your message..." 
+                                        maxlength="1000" 
+                                        rows="1"
+                                        onkeydown="handleMessageKeydown(event)"
+                                        oninput="autoResizeTextarea(this); updateMessageCounter(); showTypingIndicator()"
+                                    ></textarea>
                                     <button class="btn btn-primary" id="send-message-btn" onclick="sendMessage()">
                                         <i class="ri-send-plane-line"></i>
                                     </button>
                                 </div>
+                                
                                 <div class="chat-input-info">
-                                    <span id="typing-indicator" style="display: none;">
+                                    <span id="typing-indicator-display" style="display: none;">
                                         <i class="ri-more-line"></i> typing...
                                     </span>
                                     <span id="message-counter">0/1000</span>
+                                </div>
+                                
+                                <div class="emoji-picker" id="emoji-picker" style="display: none;">
+                                    <div class="emoji-grid">
+                                        <span onclick="insertEmoji('😊')">😊</span>
+                                        <span onclick="insertEmoji('😂')">😂</span>
+                                        <span onclick="insertEmoji('❤️')">❤️</span>
+                                        <span onclick="insertEmoji('😍')">😍</span>
+                                        <span onclick="insertEmoji('😘')">😘</span>
+                                        <span onclick="insertEmoji('🥰')">🥰</span>
+                                        <span onclick="insertEmoji('😉')">😉</span>
+                                        <span onclick="insertEmoji('👍')">👍</span>
+                                        <span onclick="insertEmoji('👏')">👏</span>
+                                        <span onclick="insertEmoji('🙏')">🙏</span>
+                                        <span onclick="insertEmoji('💕')">💕</span>
+                                        <span onclick="insertEmoji('💖')">💖</span>
+                                        <span onclick="insertEmoji('🌹')">🌹</span>
+                                        <span onclick="insertEmoji('🎉')">🎉</span>
+                                        <span onclick="insertEmoji('😢')">😢</span>
+                                        <span onclick="insertEmoji('😭')">😭</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -686,6 +763,122 @@ $user_name = $_SESSION['user_name'];
                 <button class="btn btn-outline" onclick="skipMatch()">
                     <i class="ri-close-line"></i>
                     Skip
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="ri-settings-line"></i> Account Settings</h2>
+                <span class="close" onclick="closeModal('settingsModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <h3><i class="ri-user-settings-line"></i> Profile Settings</h3>
+                    <div class="setting-item">
+                        <label>Profile Visibility</label>
+                        <select class="form-control">
+                            <option>Public</option>
+                            <option>Private</option>
+                            <option>Members Only</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" checked> Show online status
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h3><i class="ri-notification-settings-line"></i> Notification Settings</h3>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" checked> Email notifications
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" checked> Message notifications
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" checked> Match notifications
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h3><i class="ri-shield-line"></i> Privacy Settings</h3>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" checked> Allow contact requests
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox"> Show last active
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="saveSettings()">
+                    <i class="ri-save-line"></i>
+                    Save Settings
+                </button>
+                <button class="btn btn-outline" onclick="closeModal('settingsModal')">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="helpModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="ri-question-line"></i> Help & Support</h2>
+                <span class="close" onclick="closeModal('helpModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="help-section">
+                    <h3><i class="ri-book-line"></i> Frequently Asked Questions</h3>
+                    <div class="faq-item">
+                        <h4>How do I update my profile?</h4>
+                        <p>Go to the "My Profile" section and click on "Edit Profile" to update your information.</p>
+                    </div>
+                    <div class="faq-item">
+                        <h4>How does the matching system work?</h4>
+                        <p>Our smart algorithm matches you based on compatibility factors like age, location, interests, and preferences.</p>
+                    </div>
+                    <div class="faq-item">
+                        <h4>How can I send messages?</h4>
+                        <p>Visit the "Messages" section to start conversations with your matches or accepted contacts.</p>
+                    </div>
+                </div>
+                
+                <div class="help-section">
+                    <h3><i class="ri-customer-service-line"></i> Contact Support</h3>
+                    <p>Need more help? Contact our support team:</p>
+                    <div class="contact-info">
+                        <p><i class="ri-mail-line"></i> support@padmasaliar.com</p>
+                        <p><i class="ri-phone-line"></i> +91 9876543210</p>
+                        <p><i class="ri-time-line"></i> Mon-Fri: 9 AM - 6 PM</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="openContactForm()">
+                    <i class="ri-mail-send-line"></i>
+                    Contact Us
+                </button>
+                <button class="btn btn-outline" onclick="closeModal('helpModal')">
+                    Close
                 </button>
             </div>
         </div>

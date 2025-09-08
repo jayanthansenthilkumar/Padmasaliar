@@ -1437,12 +1437,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const messageInput = document.getElementById('message-input');
     if (messageInput) {
         messageInput.addEventListener('input', updateMessageCounter);
-        messageInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
     }
 });
 
@@ -1454,6 +1448,201 @@ function updateMessageCounter() {
         counter.textContent = `${length}/1000`;
         counter.style.color = length > 900 ? '#f44336' : '#6c757d';
     }
+}
+
+// Enhanced message input handling
+function handleMessageKeydown(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+    }
+}
+
+function autoResizeTextarea(textarea) {
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+}
+
+function toggleEmojiPicker() {
+    const picker = document.getElementById('emoji-picker');
+    picker.style.display = picker.style.display === 'block' ? 'none' : 'block';
+}
+
+function insertEmoji(emoji) {
+    const input = document.getElementById('message-input');
+    const cursorPos = input.selectionStart;
+    const textBefore = input.value.substring(0, cursorPos);
+    const textAfter = input.value.substring(cursorPos);
+    
+    input.value = textBefore + emoji + textAfter;
+    input.focus();
+    input.setSelectionRange(cursorPos + emoji.length, cursorPos + emoji.length);
+    
+    updateMessageCounter();
+    toggleEmojiPicker();
+}
+
+function attachFile() {
+    // Create file input
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*,.pdf,.doc,.docx';
+    fileInput.onchange = function(event) {
+        const file = event.target.files[0];
+        if (file) {
+            handleFileAttachment(file);
+        }
+    };
+    fileInput.click();
+}
+
+function handleFileAttachment(file) {
+    // For now, just show an alert - you can implement file upload later
+    showAlert('info', 'File attachment feature will be available soon!');
+}
+
+let typingTimer;
+let isTyping = false;
+
+function showTypingIndicator() {
+    if (!isTyping) {
+        isTyping = true;
+        // In a real implementation, you would send typing status to server
+    }
+    
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(() => {
+        isTyping = false;
+        // Send stop typing to server
+    }, 2000);
+}
+
+// Enhanced message display with better formatting
+function displayMessages(messages, append = false) {
+    const container = document.getElementById('chat-messages');
+    
+    if (messages.length === 0) {
+        container.innerHTML = `
+            <div class="no-messages">
+                <i class="ri-chat-3-line"></i>
+                <p>No messages yet. Start the conversation!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const messagesHTML = messages.map(message => {
+        const isCurrentUser = message.sender_id == window.userData.user_id;
+        const messageTime = formatMessageTime(message.sent_at);
+        const messageText = formatMessageText(message.message_text);
+        
+        return `
+            <div class="message ${isCurrentUser ? 'sent' : 'received'}">
+                <div class="message-content">
+                    <div class="message-text">${messageText}</div>
+                    <div class="message-meta">
+                        <span class="message-time">${messageTime}</span>
+                        ${isCurrentUser ? '<i class="ri-check-double-line message-status"></i>' : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    if (append) {
+        const currentScroll = container.scrollTop;
+        const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 1;
+        
+        container.innerHTML = messagesHTML;
+        
+        if (isScrolledToBottom) {
+            container.scrollTop = container.scrollHeight;
+        }
+    } else {
+        container.innerHTML = messagesHTML;
+        container.scrollTop = container.scrollHeight;
+    }
+}
+
+function formatMessageText(text) {
+    // Basic formatting: convert line breaks and detect URLs
+    text = escapeHtml(text);
+    text = text.replace(/\n/g, '<br>');
+    
+    // Simple URL detection and linking
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    text = text.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    
+    return text;
+}
+
+// Enhanced conversation management
+function displayConversations(conversations) {
+    const container = document.getElementById('conversations-list');
+    
+    if (conversations.length === 0) {
+        container.innerHTML = `
+            <div class="empty-conversations">
+                <i class="ri-chat-3-line"></i>
+                <p>No conversations yet</p>
+                <button class="btn btn-sm btn-primary" onclick="startNewConversation()">
+                    <i class="ri-add-line"></i> Start chatting
+                </button>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = conversations.map(conv => {
+        const isActive = conv.conversation_id === currentConversationId;
+        const unreadBadge = conv.unread_count > 0 ? 
+            `<span class="unread-badge">${conv.unread_count > 99 ? '99+' : conv.unread_count}</span>` : '';
+        
+        return `
+            <div class="conversation-item ${isActive ? 'active' : ''}" 
+                 onclick="openConversation(${conv.conversation_id}, ${conv.other_user_id}, '${conv.other_user_name}', '${conv.other_user_photo || ''}')">
+                <div class="conversation-avatar">
+                    ${conv.other_user_photo ? 
+                        `<img src="${conv.other_user_photo}" alt="${conv.other_user_name}">` :
+                        `<div class="avatar-placeholder"><i class="ri-user-line"></i></div>`
+                    }
+                    ${unreadBadge}
+                    <div class="online-indicator ${Math.random() > 0.5 ? 'online' : ''}"></div>
+                </div>
+                <div class="conversation-info">
+                    <div class="conversation-header">
+                        <h4>${conv.other_user_name}</h4>
+                        <span class="message-time">${formatMessageTime(conv.last_message_at)}</span>
+                    </div>
+                    <p class="last-message">${conv.last_message ? truncateMessage(conv.last_message, 40) : 'No messages yet'}</p>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function truncateMessage(message, length) {
+    return message.length > length ? message.substring(0, length) + '...' : message;
+}
+
+// Enhanced settings and help functions
+function saveSettings() {
+    // Collect all settings
+    const settings = {
+        profileVisibility: document.querySelector('select').value,
+        showOnlineStatus: document.querySelector('input[type="checkbox"]').checked,
+        // Add more settings as needed
+    };
+    
+    // In a real implementation, send to server
+    showAlert('success', 'Settings saved successfully!');
+    closeModal('settingsModal');
+}
+
+function openContactForm() {
+    closeModal('helpModal');
+    // Open contact form or redirect to contact page
+    showAlert('info', 'Contact form will open soon!');
 }
 
 // Utility functions
@@ -1719,3 +1908,59 @@ function initializeUserDashboard() {
     loadDashboardData();
     initializeNotifications();
 }
+
+// User Dropdown Functions
+function toggleUserDropdown() {
+    const menu = document.getElementById('user-dropdown-menu');
+    const button = document.querySelector('.user-dropdown-btn');
+    
+    if (menu.style.display === 'block') {
+        closeUserDropdown();
+    } else {
+        menu.style.display = 'block';
+        button.classList.add('active');
+    }
+}
+
+function closeUserDropdown() {
+    const menu = document.getElementById('user-dropdown-menu');
+    const button = document.querySelector('.user-dropdown-btn');
+    
+    menu.style.display = 'none';
+    button.classList.remove('active');
+}
+
+function openSettingsModal() {
+    closeUserDropdown();
+    showModal('settingsModal');
+}
+
+function openHelpModal() {
+    closeUserDropdown();
+    showModal('helpModal');
+}
+
+// Enhanced sidebar toggle
+function toggleSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const mainContent = document.querySelector('.main-content');
+    
+    sidebar.classList.toggle('collapsed');
+    mainContent.classList.toggle('expanded');
+}
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', function(event) {
+    // Close user dropdown
+    const userDropdown = document.querySelector('.user-dropdown');
+    if (userDropdown && !userDropdown.contains(event.target)) {
+        closeUserDropdown();
+    }
+    
+    // Close notifications
+    const notificationsDropdown = document.querySelector('.notifications-dropdown');
+    const notificationsPanel = document.getElementById('notifications-panel');
+    if (notificationsDropdown && !notificationsDropdown.contains(event.target)) {
+        notificationsPanel.style.display = 'none';
+    }
+});
